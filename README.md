@@ -1,15 +1,10 @@
-package inorder_test
+# In Order
 
-import (
-	"fmt"
-	"math/rand"
-	"testing"
-	"time"
+Maintains ordering of asynchronous tasks.
 
-	"github.com/Sydsvenskan/inorder"
-	"github.com/xdg/testy"
-)
+## Usage
 
+```golang
 type DummyTask struct {
 	block *inorder.Block
 	Name  string
@@ -49,22 +44,4 @@ func ExampleUse() {
 	// second: b
 	// last: c
 }
-
-func TestRandomOrdering(t *testing.T) {
-	is := testy.New(t).Label("the order is preserved")
-	defer func() { t.Logf(is.Done()) }()
-
-	inOrder := inorder.NewInOrder()
-
-	var tasks []*DummyTask
-	for i := 0; i < 20; i++ {
-		ms := rand.Int() % 20
-		task := NewDummyTask(time.Duration(ms)*time.Millisecond, "")
-		tasks = append(tasks, task)
-		inOrder.Enqueue(task)
-	}
-
-	for _, task := range tasks {
-		is.True(task == <-inOrder.Done)
-	}
-}
+```
