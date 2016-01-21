@@ -19,7 +19,7 @@ func NewBlock() *Block {
 // IsDone checks if the task is done
 func (b *Block) IsDone() (done bool) {
 	b.mutex.RLock()
-	done = true
+	done = b.done
 	b.mutex.RUnlock()
 	return
 }

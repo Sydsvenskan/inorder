@@ -22,10 +22,10 @@ func (dt *DummyTask) Wait() {
 func NewDummyTask(d time.Duration, name string) *DummyTask {
 	t := &DummyTask{
 		block: inorder.NewBlock(),
-		Name:  name,
 	}
 	go func() {
 		<-time.NewTimer(d).C
+		t.Name = name
 		t.block.Done()
 	}()
 	return t
