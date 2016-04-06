@@ -1,10 +1,25 @@
 package inorder
 
-import "sync"
+import (
+	"errors"
+	"sync"
+	"time"
+)
+
+var (
+	// ErrTaskTimedOut the task didn't complete within the specified time limit
+	ErrTaskTimedOut = errors.New("task timed out")
+)
 
 // Task is something that we can wait for
 type Task interface {
-	Wait()
+	Wait() chan bool
+}
+
+// Result is the result of a task
+type Result struct {
+	Error error
+	Task  Task
 }
 
 // InOrder maintains the order of enqueued jobs
@@ -12,13 +27,15 @@ type InOrder struct {
 	order []Task
 	mutex sync.Mutex
 
-	Done chan Task
+	Timeout time.Duration
+	Done    chan *Result
 }
 
 // NewInOrder creates a new orderer
-func NewInOrder() *InOrder {
+func NewInOrder(timeout time.Duration) *InOrder {
 	return &InOrder{
-		Done: make(chan Task),
+		Done:    make(chan *Result),
+		Timeout: timeout,
 	}
 }
 
@@ -36,8 +53,17 @@ func (in *InOrder) Enqueue(task Task) {
 }
 
 func (in *InOrder) forwardOnDone(task Task) {
-	task.Wait()
-	in.Done <- task
+	select {
+	case <-task.Wait():
+		in.Done <- &Result{
+			Task: task,
+		}
+	case <-time.After(in.Timeout):
+		in.Done <- &Result{
+			Task:  task,
+			Error: ErrTaskTimedOut,
+		}
+	}
 
 	in.mutex.Lock()
 	in.order = in.order[1:]

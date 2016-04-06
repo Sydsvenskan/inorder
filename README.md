@@ -6,21 +6,23 @@ Maintains ordering of asynchronous tasks.
 
 ```golang
 type DummyTask struct {
-	block *inorder.Block
-	Name  string
+	block        *inorder.Block
+	ExpectedName string
+	Name         string
 }
 
-func (dt *DummyTask) Wait() {
-	dt.block.Wait()
+func (dt *DummyTask) Wait() chan bool {
+	return dt.block.Wait()
 }
 
 func NewDummyTask(d time.Duration, name string) *DummyTask {
 	t := &DummyTask{
-		block: inorder.NewBlock(),
-		Name:  name,
+		ExpectedName: name,
+		block:        inorder.NewBlock(),
 	}
 	go func() {
 		<-time.NewTimer(d).C
+		t.Name = name
 		t.block.Done()
 	}()
 	return t
@@ -31,14 +33,14 @@ func ExampleUse() {
 	b := NewDummyTask(10*time.Millisecond, "b")
 	c := NewDummyTask(15*time.Millisecond, "c")
 
-	inOrder := inorder.NewInOrder()
+	inOrder := inorder.NewInOrder(50 * time.Millisecond)
 	inOrder.Enqueue(a)
 	inOrder.Enqueue(b)
 	inOrder.Enqueue(c)
 
-	fmt.Println("first:", (<-inOrder.Done).(*DummyTask).Name)
-	fmt.Println("second:", (<-inOrder.Done).(*DummyTask).Name)
-	fmt.Println("last:", (<-inOrder.Done).(*DummyTask).Name)
+	fmt.Println("first:", (<-inOrder.Done).Task.(*DummyTask).Name)
+	fmt.Println("second:", (<-inOrder.Done).Task.(*DummyTask).Name)
+	fmt.Println("last:", (<-inOrder.Done).Task.(*DummyTask).Name)
 	// Output:
 	// first: a
 	// second: b
