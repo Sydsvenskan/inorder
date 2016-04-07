@@ -14,18 +14,42 @@ var (
 // Task is something that we can wait for
 type Task interface {
 	Wait() chan bool
+	IsDone() bool
 }
 
 // Result is the result of a task
 type Result struct {
+	mutex *sync.Mutex
 	Error error
 	Task  Task
 }
 
+func (r *Result) SetError(err error) {
+	r.mutex.Lock()
+	r.Error = err
+	r.mutex.Unlock()
+}
+
+func (r *Result) IsDone() (bool, error) {
+	var err error
+
+	r.mutex.Lock()
+	if r.Error != nil {
+		err = r.Error
+	}
+	r.mutex.Unlock()
+
+	if err != nil {
+		return false, err
+	}
+	return r.Task.IsDone(), nil
+}
+
 // InOrder maintains the order of enqueued jobs
 type InOrder struct {
-	order []Task
-	mutex sync.Mutex
+	order    []*Result
+	mutex    sync.Mutex
+	taskDone chan bool
 
 	Timeout time.Duration
 	Done    chan *Result
@@ -33,44 +57,64 @@ type InOrder struct {
 
 // NewInOrder creates a new orderer
 func NewInOrder(timeout time.Duration) *InOrder {
-	return &InOrder{
-		Done:    make(chan *Result),
-		Timeout: timeout,
+	in := &InOrder{
+		Done:     make(chan *Result),
+		taskDone: make(chan bool),
+		Timeout:  timeout,
 	}
+
+	go func() {
+		var doneList []*Result
+
+		for _ = range in.taskDone {
+			in.mutex.Lock()
+
+			doneUntil := -1
+			for i, res := range in.order {
+				done, err := res.IsDone()
+				if done || err != nil {
+					doneList = append(doneList, res)
+				} else {
+					break
+				}
+				doneUntil = i
+			}
+			if doneUntil >= 0 {
+				in.order = in.order[doneUntil+1:]
+			}
+			in.mutex.Unlock()
+
+			// Send off the the done tasks outside of the mutex lock
+			if len(doneList) > 0 {
+				for _, res := range doneList {
+					in.Done <- res
+				}
+				doneList = doneList[:0]
+			}
+		}
+	}()
+
+	return in
 }
 
 // Enqueue a new task
 func (in *InOrder) Enqueue(task Task) {
 	in.mutex.Lock()
-	in.order = append(in.order, task)
 
-	// If the inOrder slice was empty before we want to start up the forwarding
-	// routine.
-	if len(in.order) == 1 {
-		go in.forwardOnDone(task)
+	result := &Result{
+		mutex: &sync.Mutex{},
+		Task:  task,
 	}
+	in.order = append(in.order, result)
+
 	in.mutex.Unlock()
-}
 
-func (in *InOrder) forwardOnDone(task Task) {
-	select {
-	case <-task.Wait():
-		in.Done <- &Result{
-			Task: task,
+	go func() {
+		select {
+		case <-result.Task.Wait():
+		case <-time.After(in.Timeout):
+			result.Error = ErrTaskTimedOut
 		}
-	case <-time.After(in.Timeout):
-		in.Done <- &Result{
-			Task:  task,
-			Error: ErrTaskTimedOut,
-		}
-	}
-
-	in.mutex.Lock()
-	in.order = in.order[1:]
-
-	// Keep forwarding until we have emptied the in-order list
-	if len(in.order) > 0 {
-		go in.forwardOnDone(in.order[0])
-	}
-	in.mutex.Unlock()
+		in.taskDone <- true
+	}()
 }

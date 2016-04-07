@@ -20,6 +20,10 @@ func (dt *DummyTask) Wait() chan bool {
 	return dt.block.Wait()
 }
 
+func (dt *DummyTask) IsDone() bool {
+	return dt.block.IsDone()
+}
+
 func NewDummyTask(d time.Duration, name string) *DummyTask {
 	t := &DummyTask{
 		ExpectedName: name,
@@ -56,28 +60,32 @@ func TestRandomOrdering(t *testing.T) {
 	is := testy.New(t).Label("the order is preserved")
 	defer func() { t.Logf(is.Done()) }()
 
-	inOrder := inorder.NewInOrder(50 * time.Millisecond)
+	inOrder := inorder.NewInOrder(100 * time.Millisecond)
 
 	var tasks []*DummyTask
-	for i := 0; i < 2000; i++ {
-		name := "normal"
-		ms := rand.Int() % 55
+	for i := 0; i < 5000; i++ {
+		name := fmt.Sprintf("normal-%d", i)
+		ms := rand.Int() % 50
 		if i%500 == 0 {
-			ms = 1000
-			name = "too-long"
+			ms = 20000
+			name = fmt.Sprintf("too-long-%d", i)
 		}
 		task := NewDummyTask(time.Duration(ms)*time.Millisecond, name)
 		tasks = append(tasks, task)
 		inOrder.Enqueue(task)
+		if i%100 == 0 {
+			time.Sleep(20 * time.Millisecond)
+		}
 	}
 
-	for _, task := range tasks {
+	for i := range tasks {
 		result := <-inOrder.Done
 		if result.Error == inorder.ErrTaskTimedOut {
-			is.Equal(result.Task.(*DummyTask).ExpectedName, "too-long")
+			is.Equal(result.Task.(*DummyTask).ExpectedName, fmt.Sprintf("too-long-%d", i))
 		} else if result.Error == nil {
-			is.Equal(result.Task.(*DummyTask).ExpectedName, "normal")
+			is.Equal(result.Task.(*DummyTask).Name, fmt.Sprintf("normal-%d", i))
+		} else {
+			is.Errorf("Task failed: %s", result.Error.Error())
 		}
-		is.True(task == result.Task)
 	}
 }
